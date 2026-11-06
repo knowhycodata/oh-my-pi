@@ -15,6 +15,7 @@ import { Effort } from "@oh-my-pi/pi-catalog/effort";
 import { getModelPricingStatus } from "@oh-my-pi/pi-catalog/models";
 import { llmtrModelManagerOptions } from "@oh-my-pi/pi-catalog/provider-models/openai-compat";
 import type { Model } from "@oh-my-pi/pi-catalog/types";
+import { runLlmtrChatSmoke } from "../scripts/llmtr-chat-smoke";
 
 const BASE_URL = "https://llmtr.com/v1";
 const VERIFIED_ID = "minimax/minimax-m3.1-flash";
@@ -263,5 +264,67 @@ describe("LLMTR chat request", () => {
 		expect(disabled.calls[0]?.body.reasoning_effort).toBe("low");
 		expect(disabled.calls[0]?.body).not.toHaveProperty("reasoning");
 		expect(disabled.calls[0]?.body.model).toBe("llmtr/gpt-5.4");
+	});
+});
+
+describe("LLMTR smoke entry", () => {
+	test("missing key exits before any request", async () => {
+		delete Bun.env.LLMTR_API_KEY;
+		let calls = 0;
+		const code = await runLlmtrChatSmoke(async () => {
+			calls += 1;
+			return new Response(null, { status: 500 });
+		});
+		expect(code).toBe(1);
+		expect(calls).toBe(0);
+	});
+
+	test("one chat completion post, no reasoning fields, nonempty text passes", async () => {
+		Bun.env.LLMTR_API_KEY = "llmtr-env-key";
+		const calls: Array<{ url: string; redirect: RequestRedirect | null; body: Record<string, unknown> }> = [];
+		const code = await runLlmtrChatSmoke(async (input, init) => {
+			const parsed: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+			calls.push({
+				url: String(input),
+				redirect: init?.redirect ?? null,
+				body: typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {},
+			});
+			const chunk = JSON.stringify({
+				id: "chatcmpl-llmtr",
+				object: "chat.completion.chunk",
+				choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }],
+			});
+			return new Response(`data: ${chunk}\n\ndata: [DONE]\n\n`, {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			});
+		});
+		expect(code).toBe(0);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toMatchObject({
+			url: `${BASE_URL}/chat/completions`,
+			redirect: "error",
+		});
+		expect(calls[0]?.body.model).toBe(VERIFIED_ID);
+		expect(calls[0]?.body.max_tokens).toBe(64);
+		expect(calls[0]?.body).not.toHaveProperty("reasoning");
+		expect(calls[0]?.body).not.toHaveProperty("reasoning_effort");
+		expect(calls[0]?.body).not.toHaveProperty("tools");
+	});
+
+	test("empty assistant text is a failure", async () => {
+		Bun.env.LLMTR_API_KEY = "llmtr-env-key";
+		const code = await runLlmtrChatSmoke(async () => {
+			const chunk = JSON.stringify({
+				id: "chatcmpl-llmtr",
+				object: "chat.completion.chunk",
+				choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+			});
+			return new Response(`data: ${chunk}\n\ndata: [DONE]\n\n`, {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			});
+		});
+		expect(code).toBe(1);
 	});
 });
