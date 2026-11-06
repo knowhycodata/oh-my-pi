@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added LLMTR (`llmtr`) as a provider: Chat Completions at `https://llmtr.com/v1` with `LLMTR_API_KEY`, and `minimax/minimax-m3.1-flash` as the default model
+
 ## [18.17.0] - 2026-11-06
 
 ### Added

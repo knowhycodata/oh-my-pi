@@ -273,6 +273,12 @@ behavior {
 	api-routes provider="zenmux" default="openai-completions" {
 		route "anthropic-messages" prefix="anthropic/"
 	}
+	// LLMTR publishes only chat completions. Embedded prefixes, including
+	// `llmtr/`, are part of the wire id and are not stripped. The default
+	// keeps gpt-style ids off the Responses route.
+	api-routes provider="llmtr" default="openai-completions" {
+		route "openai-completions" prefix="llmtr/" strip-prefix=#false
+	}
 	// GLM-5.3-Flash is available on Z.AI's native chat-completions API but
 	// not its Anthropic-compatible coding endpoint (#10539).
 	api-routes provider="zai" default="anthropic-messages" {

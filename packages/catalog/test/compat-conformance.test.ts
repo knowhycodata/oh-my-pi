@@ -22,6 +22,10 @@ const RUNTIME_ONLY_PROVIDERS = new Set([
 	// including its tariff and effort ladder, comes from the live /v1/models
 	// snapshot, so no rows are frozen into the bundled catalog.
 	"charm-hyper",
+	// Public /v1/models listing via llmtrModelManagerOptions. The reviewed
+	// minimax/minimax-m3.1-flash seed is the offline fallback; generation does
+	// not call the endpoint, so the row is not frozen into models.json.
+	"llmtr",
 	// Factory has no public model-listing endpoint. Its CLI roster is a
 	// `bundle="never"` KDL seed; factoryDroidModelManagerOptions serves it
 	// offline and narrows it by account flags/org policy live.

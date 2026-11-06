@@ -1,0 +1,48 @@
+// LLMTR chat gateway (https://llmtr.com/v1).
+//
+// The fallback row is the unauthenticated public catalog record for
+// `minimax/minimax-m3.1-flash` retrieved 2026-11-06 (GET /v1/models, HTTP 200,
+// no Authorization). That record lists only CHAT_COMPLETIONS at
+// /v1/chat/completions, context_length 1000000, and
+// top_provider.max_completion_tokens 524288.
+//
+// Pricing strings on the record are USD per token:
+//   prompt "0.00000015", completion "0.0000006", input_cache_read "0.000000015".
+// The catalog stores USD per million, the same ×1_000_000 conversion as
+// OpenRouter-shaped `pricing` rows (0.15 / 0.6 / 0.015). input_cache_write was
+// not published; the required cache-write leg is 0. architecture.input_modalities
+// also lists "video", which has no catalog input slot, so the row records text
+// and image only.
+//
+// reasoning.mandatory and reasoning.default_enabled are both true, with
+// supported_efforts low, medium, high, xhigh, max. Omitting the reasoning
+// parameter is valid. This profile does not use the Responses `reasoning`
+// object; a requested effort is `reasoning_effort` on chat completions.
+// There is no discovery node: catalog generation must not call the endpoint.
+// llmtrModelManagerOptions serves this seed offline and replaces it from the
+// public /v1/models listing at runtime.
+provider "llmtr" {
+	default-model "minimax/minimax-m3.1-flash"
+	env "LLMTR_API_KEY"
+	allow-unauthenticated #true
+	dynamic-models-authoritative #true
+	skip-cross-provider-reference-fills #true
+
+	// Both max_tokens and max_completion_tokens are published. Chat requests
+	// use max_tokens so a caller cap is not rewritten to max_completion_tokens.
+	max-tokens-field "max_tokens"
+	// OpenAI chat dialect sends reasoning_effort, not a reasoning object.
+	thinking-format "openai"
+
+	seed api="openai-completions" base-url="https://llmtr.com/v1" bundle="fallback" {
+		model "minimax/minimax-m3.1-flash" name="MiniMax M3.1 Flash" {
+			reasoning #true
+			input "text" "image"
+			cost input=0.15 output=0.6 cache-read=0.015 cache-write=0
+			limits context=1000000 max-tokens=524288
+			thinking-mode "effort"
+			thinking-efforts "low" "medium" "high" "xhigh" "max"
+			thinking-requires-effort #true
+		}
+	}
+}

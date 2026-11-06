@@ -8239,3 +8239,119 @@ export function scalewayModelManagerOptions(
 		mapModel: mapWithBundledReference,
 	});
 }
+
+// ---------------------------------------------------------------------------
+// LLMTR
+// ---------------------------------------------------------------------------
+
+const LLMTR_BASE_URL = "https://llmtr.com/v1";
+const LLMTR_CHAT_OPERATION = "CHAT_COMPLETIONS";
+const LLMTR_CHAT_ENDPOINT = "/v1/chat/completions";
+
+export interface LlmtrModelManagerConfig {
+	apiKey?: string;
+	baseUrl?: string;
+	fetch?: FetchImpl;
+}
+
+function llmtrStrings(value: unknown): readonly string[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const items: string[] = [];
+	for (const item of value) {
+		if (typeof item === "string") items.push(item);
+	}
+	return items;
+}
+
+/** Keep a row when it does not advertise a non-chat operation or endpoint. */
+function llmtrListsChat(entry: OpenAICompatibleModelRecord): boolean {
+	const operations = llmtrStrings(entry.supported_operations);
+	if (operations !== undefined && !operations.includes(LLMTR_CHAT_OPERATION)) return false;
+	const endpoints = llmtrStrings(entry.supported_endpoints);
+	if (endpoints !== undefined && !endpoints.includes(LLMTR_CHAT_ENDPOINT)) return false;
+	return true;
+}
+
+/**
+ * Catalog input is text or image. A published `video` modality is left off
+ * the row rather than recorded as image.
+ */
+function llmtrInput(entry: OpenAICompatibleModelRecord): Array<"text" | "image"> {
+	const architecture = isRecord(entry.architecture) ? entry.architecture : undefined;
+	const modalities = llmtrStrings(architecture?.input_modalities);
+	if (modalities === undefined) return ["text"];
+	const input: Array<"text" | "image"> = [];
+	if (modalities.includes("text")) input.push("text");
+	if (modalities.includes("image")) input.push("image");
+	return input.length > 0 ? input : ["text"];
+}
+
+function llmtrThinking(
+	entry: OpenAICompatibleModelRecord,
+): Pick<ModelSpec<"openai-completions">, "reasoning" | "thinking"> {
+	const published = isRecord(entry.reasoning) ? entry.reasoning : undefined;
+	if (!published) return { reasoning: false };
+	const efforts: Effort[] = [];
+	for (const level of llmtrStrings(published.supported_efforts) ?? []) {
+		if (!(THINKING_EFFORTS as readonly string[]).includes(level) || efforts.includes(level as Effort)) continue;
+		efforts.push(level as Effort);
+	}
+	const mandatory = published.mandatory === true;
+	const defaultEnabled = published.default_enabled === true;
+	if (!mandatory && !defaultEnabled && efforts.length === 0) return { reasoning: false };
+	if (efforts.length === 0) return { reasoning: true };
+	const thinking: ThinkingConfig = {
+		mode: "effort",
+		efforts,
+		...(mandatory ? { requiresEffort: true } : {}),
+	};
+	return { reasoning: true, thinking };
+}
+
+/**
+ * Map one public `/v1/models` row. The id is copied unchanged, including an
+ * embedded `llmtr/` prefix. Limits and prices are taken only from fields the
+ * row itself publishes; per-token `pricing` strings become per-million rates.
+ */
+function mapLlmtrModel(
+	entry: OpenAICompatibleModelRecord,
+	defaults: ModelSpec<"openai-completions">,
+): ModelSpec<"openai-completions"> | null {
+	if (!llmtrListsChat(entry)) return null;
+	const top = isRecord(entry.top_provider) ? entry.top_provider : undefined;
+	const thinking = llmtrThinking(entry);
+	return {
+		...defaults,
+		id: defaults.id,
+		name: toModelName(entry.name, defaults.id),
+		...thinking,
+		input: llmtrInput(entry),
+		...(isRecord(entry.pricing) ? { cost: perTokenPricingCost(entry.pricing) } : {}),
+		contextWindow: toPositiveNumber(entry.context_length, null),
+		maxTokens: toPositiveNumber(top?.max_completion_tokens, null),
+	};
+}
+
+/**
+ * LLMTR model manager. `/v1/models` is public, so discovery runs without a
+ * key; a key is sent only when one was supplied. A successful listing replaces
+ * the reviewed fallback seed. Ids are not rewritten.
+ */
+export function llmtrModelManagerOptions(config?: LlmtrModelManagerConfig): ModelManagerOptions<"openai-completions"> {
+	const apiKey = config?.apiKey;
+	const baseUrl = config?.baseUrl ?? LLMTR_BASE_URL;
+	return {
+		providerId: "llmtr",
+		dynamicModelsAuthoritative: true,
+		staticModels: seedModels("llmtr"),
+		fetchDynamicModels: () =>
+			fetchOpenAICompatibleModels({
+				api: "openai-completions",
+				provider: "llmtr",
+				baseUrl,
+				...(apiKey ? { apiKey } : {}),
+				mapModel: mapLlmtrModel,
+				fetch: config?.fetch,
+			}),
+	};
+}

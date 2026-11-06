@@ -1,0 +1,12 @@
+// GET /v1/models is public (HTTP 200 with no Authorization, 2026-11-06) and
+// cannot validate a key. Login probes chat completions with the reviewed model.
+auth "llmtr" {
+	name "LLMTR"
+	env "LLMTR_API_KEY"
+	login "api-key" {
+		auth-url "https://llmtr.com"
+		instructions "Copy your LLMTR API key. The public model list does not check keys."
+		prompt "Paste your LLMTR API key" placeholder="..."
+		validate "chat-completions" label="LLMTR" base-url="https://llmtr.com/v1" model="minimax/minimax-m3.1-flash" max-tokens-field="max_tokens" max-tokens=1
+	}
+}
